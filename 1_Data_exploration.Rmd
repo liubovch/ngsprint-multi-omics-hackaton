@@ -1,0 +1,320 @@
+---
+title: "Data exploration"
+output: 
+    html_notebook: default
+    html_document: default
+---
+
+# Set up
+
+1. Download and unzip AML dataset from: http://acgt.cs.tau.ac.il/multi_omic_benchmark/download.html (Rappoport & Shamir, 2019).
+2. Install required packages (see set_up.R for instructions if needed)
+
+```{r}
+library(tidyverse)
+library(ggalluvial)
+library(ComplexHeatmap)
+```
+
+```{r}
+# Specify path to directory with downloaded data
+data_dir_path = "./data/AML"
+stopifnot(file.exists(file.path(data_dir_path, 'exp')) & file.exists(file.path(data_dir_path, 'methy')) & 
+          file.exists(file.path(data_dir_path, 'mirna')))
+```
+
+```{r}
+# Inrease plot resolution in this notebook
+options(repr.plot.res=200)
+```
+
+# Acute Myleoid Leukemia (AML) Dataset
+
+## (1) Closer look at the data 
+
+```{r}
+# load gene expression data as data.frame
+data_exp <- read.table(file.path(data_dir_path, 'exp'))
+dim(data_exp)
+head(data_exp)
+```
+
+```{r}
+# load methylation data as data.frame
+data_met <- read.table(file.path(data_dir_path, 'methy'))
+dim(data_met)
+head(data_met)
+```
+
+```{r}
+# load microRNA expression data as data.frame
+data_mirna <- read.table(file.path(data_dir_path, 'mirna'))
+dim(data_mirna)
+head(data_mirna)
+```
+
+**Warm up exercise**:
+1. How many samples and features are in each data matrix?
+2. What type of biological samples are in this dataset? (Hint: look up the TCGA barcodes)
+3. What do values in each data matrix represent?
+
+```{r}
+tibble(sample = c(colnames(data_exp), colnames(data_met), colnames(data_mirna))) %>%
+    distinct() %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    group_by(st) %>%
+    summarise(nsample=n())
+```
+
+## (2) TCGA Subtypes
+
+How many unique samples are in our dataset? 
+
+```{r}
+tibble(sample = colnames(data_exp), layer="exp") %>%
+    full_join(tibble(sample = colnames(data_met), layer="met"), by = c("sample", "layer")) %>%
+    full_join(tibble(sample = colnames(data_mirna), layer="mirna"), by = c("sample", "layer")) %>%
+    spread(layer,layer) %>%
+    mutate(layers=paste(exp, met, mirna, sep=",")) %>%
+    group_by(layers) %>%
+    summarise(nsample=n())
+```
+
+Inspect the file with **known TCGA subtypes** (*AML_subtypes.tsv* in the *TCGA_subtypes* directory): 
+1. How many samples do not have subtype information available?
+2. How many different classifications/subtypes are there?
+3. "Subtype_Selected" denotes the most commonly used classification. Which data type this classification is based on? 
+
+```{r}
+subtypes <- read_tsv("./data/TCGA_subtypes/AML_subtypes.tsv", show_col_types = FALSE)
+dim(subtypes)
+head(subtypes)
+```
+
+```{r}
+subtypes %>%
+    gather(classification, subtype, -sample_codes, -samples) %>%
+    group_by(classification, subtype) %>%
+    summarise(n=n())
+```
+
+```{r}
+subtypes %>%
+    select(matches("Subtype_*")) %>%
+    is.na() %>% 
+    as_tibble() %>%
+    mutate(no_classifications_with_missing_label = rowSums(.)) %>%
+    filter(no_classifications_with_missing_label != 0) %>%
+    arrange(desc(no_classifications_with_missing_label)) 
+```
+
+```{r}
+subtypes %>% 
+    mutate(Subtype_miRNA=ifelse(is.na(Subtype_miRNA), 'miRNA.NA', Subtype_miRNA), # distinct groups for plotting 
+           Subtype_mRNA=ifelse(is.na(Subtype_mRNA), 'mRNA.NA', Subtype_mRNA),
+           Subtype_Selected=ifelse(is.na(Subtype_Selected), 'AML.NA', Subtype_Selected)) %>%
+    group_by(Subtype_miRNA, Subtype_mRNA, Subtype_Selected) %>%
+    summarise(nsamples=n()) %>%
+    ggplot(aes(y=nsamples, axis1=Subtype_miRNA, axis2=Subtype_mRNA, 
+                      axis3=Subtype_Selected)) +
+      geom_alluvium(aes(fill=Subtype_Selected), width = 0, knot.pos = 0, reverse = FALSE) +
+      guides(fill = FALSE) +
+      geom_stratum(width = 1/3, reverse = FALSE) +
+      geom_text(stat = "stratum", aes(label = after_stat(stratum)),
+                reverse = FALSE) +
+      scale_x_continuous(breaks = 1:3, labels = c("Subtype miRNA", "Subtype mRNA", "Subtype Selected")) +
+      labs(title="TCGA Acute Myeloid Leukemia Subtypes", y="#samples")
+```
+
+- Most commonly used classification for TCGA-AML samples is based purely on gene expression data.
+- Subtypes found based on miRNA and mRNA expression are widely different.
+- There is no integrative classification available.
+
+Can we "improve the classification" of samples by integrating both miRNA and mRNA expression data, as well as methylation data? 
+
+## (3) Examine separate datatypes
+
+```{r}
+# set color palettes we are going to use for subtype visualization
+exp_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 7),
+                            unique(na.omit(subtypes$Subtype_Selected)))
+miRNA_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 5),
+                            unique(na.omit(subtypes$Subtype_miRNA)))
+```
+
+### I. Gene expression
+
+```{r}
+exp_subtypes <- tibble(sample_codes=colnames(data_exp)) %>% 
+    left_join(subtypes, by = "sample_codes") # extract rows in order of samples in 'data_exp'
+```
+
+```{r}
+h <- Heatmap(as.matrix(data_exp), show_column_names = FALSE, show_row_names = FALSE, 
+        top_annotation = HeatmapAnnotation(exp_subtype=as.factor(exp_subtypes$Subtype_Selected),
+                                          miRNA_subtype=as.factor(exp_subtypes$Subtype_miRNA),
+                                          col = list(exp_subtype=exp_subtypes_col, 
+                                                     miRNA_subtype=miRNA_subtypes_col)),
+        column_split=as.factor(exp_subtypes$Subtype_Selected),
+        name= "Gene expression")
+
+draw(h, annotation_legend_side="bottom")
+#this step can take a couple of minutes
+```
+
+Even though the subtypes were created using mRNA expression information, it is hard to notice any difference between samples. This is partially because we are looking at **raw read counts**. Some gene counts greatly dominate the data, which makes it hard to observe the expression patterns/trends. Because of this, for downstream analysis (such as visualization or clustering) it may be useful to work with transformed version of count data. Here we apply the most frequently used logarithmic transformation i.e.: y = log2(x+n), where x represent count values, and n an added positive constant (since count values for gene can be zero). The transformation also has an additional advantage of reducing the effect of outliers in the data.
+
+See [this](http://bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#count-data-transformations) manual for more examples and discussion of count data transformation.
+
+Additionally, we also apply a simple filter to remove non-informative features, defined as features with constant value in our set of samples.
+
+```{r}
+preprocess.matrix <- function(data.matrix) {
+  num = log2(data.matrix + 1)
+  should.keep = (apply(num, 1, function(x) sd(x, na.rm=TRUE)) != 0) # we remove non-informative features 
+  return(num[should.keep,])
+}
+dim(data_exp)                       
+data_exp_tr <- preprocess.matrix(data_exp)
+dim(data_exp_tr)
+```
+
+```{r}
+tibble(feature_mean=c(rowMeans(data_exp, na.rm = TRUE), 
+                      rowMeans(data_exp_tr, na.rm = TRUE)), 
+       feature_sd=c(apply(data_exp, 1, function(x) sd(x, na.rm=TRUE)), 
+                          apply(data_exp_tr, 1, function(x) sd(x, na.rm=TRUE))),
+        data_matrix=c(rep("Raw read counts", dim(data_exp)[1]), 
+                      rep("log(x+1) transformed counts", dim(data_exp_tr)[1]))) %>%
+    mutate(data_matrix=as.factor(data_matrix)) %>%
+    ggplot() + 
+        geom_point(aes(x=feature_mean, y=feature_sd, size=1, alpha=0.1)) + 
+        facet_wrap(data_matrix~., scales="free", ncol=1) + 
+        guides(size=FALSE, alpha=FALSE) +
+        ggtitle("Gene expression data")
+```
+
+```{r}
+# Save transformed gene expression data (we are going to use it later)
+write.table(data_exp_tr, file = file.path(data_dir_path, "exp_tr"), 
+            row.names = TRUE, col.names = TRUE)
+```
+
+To further improve our visualization we apply additional z-score standardization to make the value of each feature in the data be zero-mean and unit variance. Z-score is calculated by subtracting the average gene abundance for each gene, and dividing that result by the standard deviation of all of the measured counts across all samples.
+
+```{r}
+normalize.matrix <- function(data.matrix) {
+  num = data.matrix - rowMeans(data.matrix, na.rm=TRUE)
+  return((num / apply(num, 1, function(x) sd(x, na.rm=TRUE))))
+}
+data_exp_norm <- normalize.matrix(data_exp_tr)                   
+```
+
+```{r}
+h <- Heatmap(as.matrix(data_exp_norm), show_column_names = FALSE, show_row_names = FALSE, 
+        top_annotation = HeatmapAnnotation(exp_subtype=as.factor(exp_subtypes$Subtype_Selected),
+                                          miRNA_subtype=as.factor(exp_subtypes$Subtype_miRNA),
+                                          col = list(exp_subtype=exp_subtypes_col, 
+                                                     miRNA_subtype=miRNA_subtypes_col)),
+        column_split=as.factor(exp_subtypes$Subtype_Selected),
+        name= "Gene expression normalized")
+
+draw(h, annotation_legend_side="bottom")
+#this step can take a couple of minutes
+```
+
+### II. microRNA expression
+
+```{r}
+mirna_subtypes <- tibble(sample_codes=colnames(data_mirna)) %>% 
+    left_join(subtypes, by = "sample_codes") # extract rows in order of samples in 'data_mirna'
+```
+
+```{r}
+h <- Heatmap(as.matrix(data_mirna), show_column_names = FALSE, show_row_names = FALSE, 
+        top_annotation = HeatmapAnnotation(exp_subtype=as.factor(mirna_subtypes$Subtype_Selected),
+                                          miRNA_subtype=as.factor(mirna_subtypes$Subtype_miRNA),
+                                          col = list(exp_subtype=exp_subtypes_col, 
+                                                     miRNA_subtype=miRNA_subtypes_col)),
+        column_split=as.factor(mirna_subtypes$Subtype_miRNA),
+        name= "microRNA expression")
+
+draw(h, annotation_legend_side="bottom")
+```
+
+As with gene expression, we apply the log(x+1) transformation to raw counts.
+
+```{r}
+dim(data_mirna)                       
+data_mirna_tr <- preprocess.matrix(data_mirna)
+dim(data_mirna_tr)
+```
+
+```{r}
+tibble(feature_mean=c(rowMeans(data_mirna, na.rm = TRUE), 
+                      rowMeans(data_mirna_tr, na.rm = TRUE)), 
+       feature_sd=c(apply(data_mirna, 1, function(x) sd(x, na.rm=TRUE)), 
+                          apply(data_mirna_tr, 1, function(x) sd(x, na.rm=TRUE))),
+        data_matrix=c(rep("Raw read counts", dim(data_mirna)[1]), 
+                      rep("log(x+1) transformed counts", dim(data_mirna_tr)[1]))) %>%
+    mutate(data_matrix=as.factor(data_matrix)) %>%
+    ggplot() + 
+        geom_point(aes(x=feature_mean, y=feature_sd, size=1, alpha=0.1)) + 
+        facet_wrap(data_matrix~., scales="free", ncol=1) + 
+        guides(size=FALSE, alpha=FALSE) +
+        ggtitle("microRNA expression data")
+```
+
+```{r}
+#Save transformed microRNA expression data (we are going to use it later)
+write.table(data_mirna_tr, file = file.path(data_dir_path, "mirna_tr"), 
+            row.names = TRUE, col.names = TRUE)
+```
+
+Again, let's apply the z-score normailzation to improve our visualization.
+
+```{r}
+data_mirna_norm <- normalize.matrix(data_mirna_tr)   
+```
+
+```{r}
+h <- Heatmap(as.matrix(data_mirna_norm), show_column_names = FALSE, show_row_names = FALSE, 
+        top_annotation = HeatmapAnnotation(exp_subtype=as.factor(mirna_subtypes$Subtype_Selected),
+                                          miRNA_subtype=as.factor(mirna_subtypes$Subtype_miRNA),
+                                          col = list(exp_subtype=exp_subtypes_col, 
+                                                     miRNA_subtype=miRNA_subtypes_col)),
+        column_split=as.factor(mirna_subtypes$Subtype_miRNA),
+        name= "microRNA expression normalized")
+draw(h, annotation_legend_side="bottom")
+```
+
+### III. DNA methylation
+
+```{r}
+met_subtypes <- tibble(sample_codes=colnames(data_met)) %>% 
+    left_join(subtypes, by = "sample_codes") # extract rows in order of samples in 'data_met'
+```
+
+```{r}
+hist(as.vector(as.matrix(data_met)), main= "DNA methylation distribution", xlab="beta values")
+```
+
+```{r}
+h1 <- Heatmap(as.matrix(data_met), show_column_names = FALSE, show_row_names = FALSE, 
+        top_annotation = HeatmapAnnotation(exp_subtype=as.factor(met_subtypes$Subtype_Selected),
+                                          miRNA_subtype=as.factor(met_subtypes$Subtype_miRNA),
+                                          col = list(exp_subtype=exp_subtypes_col, 
+                                                     miRNA_subtype=miRNA_subtypes_col)),
+        column_split=as.factor(met_subtypes$Subtype_miRNA),
+        name= "DNA Methylation")
+h2 <- Heatmap(as.matrix(data_met), show_column_names = FALSE, show_row_names = FALSE, 
+        top_annotation = HeatmapAnnotation(exp_subtype=as.factor(met_subtypes$Subtype_Selected),
+                                          miRNA_subtype=as.factor(met_subtypes$Subtype_miRNA),
+                                          col = list(exp_subtype=exp_subtypes_col, 
+                                                     miRNA_subtype=miRNA_subtypes_col)),
+        column_split=as.factor(met_subtypes$Subtype_Selected),
+        name= "DNA Methylation")
+draw(h1, annotation_legend_side="bottom")
+draw(h2, annotation_legend_side="bottom")
+```
+
