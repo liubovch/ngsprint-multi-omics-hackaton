@@ -1,0 +1,75 @@
+---
+title: "LIHC data exploration"
+output: 
+    html_notebook: default
+    html_document: default
+---
+
+# Set up
+
+```{r}
+library(tidyverse)
+library(ggalluvial)
+library(ComplexHeatmap)
+```
+
+```{r}
+# Specify path to directory with downloaded data
+data_dir_path = "./data/liver/"
+stopifnot(file.exists(file.path(data_dir_path, 'exp')) & file.exists(file.path(data_dir_path, 'methy')) & 
+          file.exists(file.path(data_dir_path, 'mirna')))
+```
+
+```{r}
+# Inrease plot resolution in this notebook
+options(repr.plot.res=200)
+```
+
+# Liver Hepatocellular Carcinoma (LIHC) Dataset
+
+## (1) Closer look at the data 
+
+```{r}
+# load gene expression data as data.frame
+data_exp <- read.table(file.path(data_dir_path, 'exp'))
+dim(data_exp)
+head(data_exp)
+```
+
+```{r}
+# load methylation data as data.frame
+data_met <- read.table(file.path(data_dir_path, 'methy'))
+dim(data_met)
+head(data_met)
+```
+
+```{r}
+# load microRNA expression data as data.frame
+data_mirna <- read.table(file.path(data_dir_path, 'mirna'))
+dim(data_mirna)
+head(data_mirna)
+```
+
+```{r}
+tibble(sample = c(colnames(data_exp), colnames(data_met), colnames(data_mirna))) %>%
+    distinct() %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    group_by(st) %>%
+    summarise(nsample=n())
+```
+
+So, we have cancer types 01 and 02, and some controls (11). **TODO: probably, we need to leave only 01 as only 2 samples for 02? Do we need to leave controls?**
+
+## (2) TCGA Subtypes
+
+How many unique samples are in our dataset? 
+
+```{r}
+tibble(sample = colnames(data_exp), layer="exp") %>%
+    full_join(tibble(sample = colnames(data_met), layer="met"), by = c("sample", "layer")) %>%
+    full_join(tibble(sample = colnames(data_mirna), layer="mirna"), by = c("sample", "layer")) %>%
+    spread(layer,layer) %>%
+    mutate(layers=paste(exp, met, mirna, sep=",")) %>%
+    group_by(layers) %>%
+    summarise(nsample=n())
+```
