@@ -157,7 +157,7 @@ write.table(data_exp_tr, file = file.path(data_dir_path, "exp_tr"),
             row.names = TRUE, col.names = TRUE)
 ```
 
-Apply z-score standartization:
+Apply z-score standardization:
 
 ```{r}
 normalize.matrix <- function(data.matrix) {
@@ -167,20 +167,7 @@ normalize.matrix <- function(data.matrix) {
 data_exp_norm <- normalize.matrix(data_exp_tr)                   
 ```
 
-```{r}
-h <- Heatmap(as.matrix(data_exp_norm), show_column_names = FALSE, show_row_names = FALSE,
-             top_annotation = HeatmapAnnotation(exp_subtype=as.factor(exp_subtypes$Subtype_mRNA),
-                                                miRNA_subtype=as.factor(exp_subtypes$Subtype_miRNA),
-                                                meth_subtype=as.factor(exp_subtypes$Subtype_DNAmeth),
-                                                icluster_subtype=as.factor(exp_subtypes$Subtype_Selected),
-                                                col = list(exp_subtype=exp_subtypes_col,
-                                                           miRNA_subtype=miRNA_subtypes_col,
-                                                           meth_subtype=meth_subtypes_col,
-                                                           icluster_subtype=icluster_subtypes_col)),
-        column_split=as.factor(exp_subtypes$Subtype_mRNA),
-        name= "Gene expression normalized")
+No heatmaps, as takes ages to draw them.
 
-draw(h, annotation_legend_side="bottom")
-#this step can take a couple of minutes
-```
+
 
