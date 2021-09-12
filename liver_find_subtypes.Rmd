@@ -1,0 +1,138 @@
+---
+title: "LIHC. Find molecular subtypes TCGA"
+output:
+    html_notebook: default
+    html_document: default
+---
+
+## Step 1: Set-up
+
+```{r}
+# Attach required packages
+library(tidyverse)
+library(ggalluvial)
+library(TCGAbiolinks)
+```
+
+```{r}
+# Specify path to directory with downloaded data
+data_dir_path = "./data/liver/"
+stopifnot(file.exists(file.path(data_dir_path, 'exp')) & file.exists(file.path(data_dir_path, 'methy')) & 
+          file.exists(file.path(data_dir_path, 'mirna')))
+```
+
+```{r}
+# Inrease plot resolution in this notebook
+options(repr.plot.res=150)
+```
+
+## Step 2: Fetch TCGA metadata
+
+```{r}
+pancancer_subtypes <- PanCancerAtlas_subtypes() %>%
+    as_tibble() %>%
+    filter(cancer.type == "LIHC")
+head(pancancer_subtypes)
+```
+
+```{r}
+pancancer_subtypes_grouped <- pancancer_subtypes %>%
+  select(-cancer.type) %>%
+  gather(classification, subtype, -pan.samplesID) %>%
+  group_by(classification, subtype) %>%
+  summarise(nsamples=n())
+```
+
+```{r}
+#let's look at the available subtypes closer
+pancancer_subtypes_grouped %>%
+  filter(classification == "Subtype_mRNA")
+
+pancancer_subtypes_grouped %>%
+  filter(classification == "Subtype_miRNA")
+
+pancancer_subtypes_grouped %>%
+  filter(classification == "Subtype_DNAmeth")
+
+pancancer_subtypes_grouped %>%
+  filter(classification == "Subtype_Selected")
+```
+
+More information about TCGA molecular subtypes can be found [here](https://bioconductor.org/packages/release/bioc/vignettes/TCGAbiolinks/inst/doc/subtypes.html).
+
+We have available classifications based on miRNA, mRNA and DNAmeth. Subtype_Selected refers here to the integrative analysis clusterization with iCluster (let's use it also).
+
+```{r}
+subtypes <- pancancer_subtypes %>% 
+  select(pan.samplesID, Subtype_miRNA, Subtype_mRNA, Subtype_DNAmeth, Subtype_Selected) %>%
+  # change pan.samplesID notation to the format TCGA-XY-ABCD
+  separate(pan.samplesID, c('a', 'b', 'c'), sep="-", extra = "drop", remove=TRUE) %>%
+  unite(c(a, b, c), col='pan.samplesID', sep="-") %>%
+  # change "#N/A" to NA (miRNA)
+  mutate(Subtype_miRNA=ifelse(Subtype_miRNA == "#N/A", NA, Subtype_miRNA))
+head(subtypes)
+```
+
+```{r}
+# Samples in our dataset
+samples_exp <- read.table(file.path(data_dir_path, 'exp')) %>% colnames()
+samples_methy <- read.table(file.path(data_dir_path, 'methy')) %>% colnames()
+samples_mirna <- read.table(file.path(data_dir_path, 'mirna')) %>% colnames()
+```
+
+```{r}
+# unify sample notation to TCGA-XY-ABCD
+samples <- 
+    tibble(sample_codes = c(samples_exp, samples_methy, samples_mirna)) %>%
+    distinct() %>%
+    separate(sample_codes, c('a', 'b', 'c'), sep="\\.", extra = "drop", remove=FALSE) %>%
+    unite(c(a, b, c), col='samples', sep="-") %>% 
+    left_join(subtypes, by=c('samples'='pan.samplesID'))
+head(samples)
+```
+
+```{r}
+samples %>%
+    select(matches("Subtype_*")) %>%
+    is.na() %>% 
+    as_tibble() %>%
+    mutate(no_classifications_with_missing_label = rowSums(.)) %>%
+    filter(no_classifications_with_missing_label != 0) %>%
+    arrange(desc(no_classifications_with_missing_label))
+```
+**A lot of missing subtypes in our data.**
+
+## Step 3 Compare available classifications
+
+```{r}
+data <- samples %>% 
+    mutate(
+      Subtype_miRNA=ifelse(is.na(Subtype_miRNA), 'miRNA.NA', Subtype_miRNA),
+      Subtype_mRNA=ifelse(is.na(Subtype_mRNA), 'mRNA.NA', Subtype_mRNA),
+      Subtype_DNAmeth=ifelse(is.na(Subtype_DNAmeth), "meth.NA", Subtype_DNAmeth),
+      Subtype_Selected=ifelse(is.na(Subtype_Selected), 'LIHC.NA', Subtype_Selected)
+      )
+dim(data)
+```
+
+```{r}
+data %>%
+    group_by(Subtype_miRNA, Subtype_mRNA, Subtype_DNAmeth, Subtype_Selected) %>%
+    summarise(nsamples=n()) %>%
+    ggplot(aes(y=nsamples, 
+               axis1=Subtype_miRNA, axis2=Subtype_mRNA, axis3=Subtype_DNAmeth, axis4=Subtype_Selected)) +
+      geom_alluvium(aes(fill=Subtype_Selected), width = 0, knot.pos = 0, reverse = FALSE) +
+      guides(fill = FALSE) +
+      geom_stratum(width = 1/3, reverse = FALSE) +
+      geom_text(stat = "stratum", aes(label = after_stat(stratum)),
+                reverse = FALSE) +
+      scale_x_continuous(breaks = 1:4, 
+                         labels = c("Subtype miRNA", "Subtype mRNA", "Subtype DNAmeth","Subtype Selected")) +
+      labs(title="TCGA LIHC Subtypes", y="#samples")
+```
+
+```{r}
+# save sample labels into tab delimited files
+write_tsv(data, file = './data/TCGA_subtypes/LIHC_subtypes.tsv')
+```
+
