@@ -104,24 +104,7 @@ subtypes %>%
 
 ## (3) Examine separate datatypes
 
-```{r}
-# set color palettes we are going to use for subtype visualization
-exp_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 6),
-                            unique(na.omit(subtypes$Subtype_mRNA)))
-miRNA_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 6),
-                              unique(na.omit(subtypes$Subtype_miRNA)))
-meth_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 5),
-                             unique(na.omit(subtypes$Subtype_DNAmeth)))
-icluster_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 4),
-                                 unique(na.omit(subtypes$Subtype_Selected)))
-```
-
 ### I. Gene expression
-
-```{r}
-exp_subtypes <- tibble(sample_codes=colnames(data_exp)) %>% 
-    left_join(subtypes, by = "sample_codes") # extract rows in order of samples in 'data_exp'
-```
 
 Log-transform the data and remove non-informative features. Draw transformed counts vs raw counts.
 
@@ -157,17 +140,45 @@ write.table(data_exp_tr, file = file.path(data_dir_path, "exp_tr"),
             row.names = TRUE, col.names = TRUE)
 ```
 
-Apply z-score standardization:
+No heatmaps, as takes ages to draw them.
+
+### II. microRNA expression
+
+As with gene expression, we apply the log(x+1) transformation to raw counts.
 
 ```{r}
-normalize.matrix <- function(data.matrix) {
-  num = data.matrix - rowMeans(data.matrix, na.rm=TRUE)
-  return((num / apply(num, 1, function(x) sd(x, na.rm=TRUE))))
-}
-data_exp_norm <- normalize.matrix(data_exp_tr)                   
+dim(data_mirna)                       
+data_mirna_tr <- preprocess.matrix(data_mirna)
+dim(data_mirna_tr)
 ```
 
-No heatmaps, as takes ages to draw them.
+```{r}
+tibble(feature_mean=c(rowMeans(data_mirna, na.rm = TRUE), 
+                      rowMeans(data_mirna_tr, na.rm = TRUE)), 
+       feature_sd=c(apply(data_mirna, 1, function(x) sd(x, na.rm=TRUE)),
+                    apply(data_mirna_tr, 1, function(x) sd(x, na.rm=TRUE))),
+        data_matrix=c(rep("Raw read counts", dim(data_mirna)[1]), 
+                      rep("log(x+1) transformed counts", dim(data_mirna_tr)[1]))) %>%
+    mutate(data_matrix=as.factor(data_matrix)) %>%
+    ggplot() + 
+        geom_point(aes(x=feature_mean, y=feature_sd, size=1, alpha=0.1)) + 
+        facet_wrap(data_matrix~., scales="free", ncol=1) + 
+        guides(size=FALSE, alpha=FALSE) +
+        ggtitle("microRNA expression data")
+```
+
+```{r}
+#Save transformed microRNA expression data (we are going to use it later)
+write.table(data_mirna_tr, file = file.path(data_dir_path, "mirna_tr"), 
+            row.names = TRUE, col.names = TRUE)
+```
+
+### III. DNA methylation
+
+```{r}
+hist(as.vector(as.matrix(data_met)), main= "DNA methylation distribution", xlab="beta values")
+```
+
 
 
 
