@@ -84,23 +84,23 @@ head(subtypes)
 
 ```{r}
 subtypes %>%
-    group_by(Subtype_miRNA, Subtype_mRNA, Subtype_DNAmeth, Subtype_Selected) %>%
+    group_by(Subtype_miRNA, Subtype_mRNA, Subtype_DNAmeth, Subtype_iCluster, Subtype_Paradigm) %>%
     summarise(nsamples=n()) %>%
-    ggplot(aes(y=nsamples, 
-               axis1=Subtype_miRNA, axis2=Subtype_mRNA, axis3=Subtype_DNAmeth, axis4=Subtype_Selected)) +
-      geom_alluvium(aes(fill=Subtype_Selected), width = 0, knot.pos = 0, reverse = FALSE) +
+    ggplot(aes(y=nsamples, axis1=Subtype_miRNA, axis2=Subtype_mRNA, axis3=Subtype_DNAmeth, 
+               axis4=Subtype_iCluster, axis5=Subtype_Paradigm)) +
+      geom_alluvium(aes(fill=Subtype_iCluster), width = 0, knot.pos = 0, reverse = FALSE) +
       guides(fill = FALSE) +
       geom_stratum(width = 1/3, reverse = FALSE) +
       geom_text(stat = "stratum", aes(label = after_stat(stratum)),
                 reverse = FALSE) +
-      scale_x_continuous(breaks = 1:4, 
-                         labels = c("Subtype miRNA", "Subtype mRNA", "Subtype DNAmeth","Subtype Selected")) +
+      scale_x_continuous(breaks = 1:5, 
+                         labels = c("Subtype miRNA", "Subtype mRNA", "Subtype DNAmeth",
+                                    "Subtype iCluster", "Subtype Paradigm")) +
       labs(title="TCGA LIHC Subtypes", y="#samples")
 ```
 
 - A lot of data with missing subtypes.
-- Subtypes for mRNA, miRNA, DNAmeth and iCluster integrative classification are widely different.
-**TODO: add also PARADIGM integrative subtyping data!** 
+- Subtypes for mRNA, miRNA, DNAmeth and iCluster integrative classification are widely different. Paradigm and iCluster subtypes are somewhat similar, but not identical though.
 
 ## (3) Examine separate datatypes
 
@@ -140,7 +140,7 @@ write.table(data_exp_tr, file = file.path(data_dir_path, "exp_tr"),
             row.names = TRUE, col.names = TRUE)
 ```
 
-No heatmaps, as takes ages to draw them.
+No heatmaps, as it takes ages to draw them.
 
 ### II. microRNA expression
 

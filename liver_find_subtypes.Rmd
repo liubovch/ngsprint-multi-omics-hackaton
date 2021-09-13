@@ -55,21 +55,27 @@ pancancer_subtypes_grouped %>%
   filter(classification == "Subtype_DNAmeth")
 
 pancancer_subtypes_grouped %>%
-  filter(classification == "Subtype_Selected")
+  filter(classification == "Subtype_Integrative")   # iCluster
+
+pancancer_subtypes_grouped %>%
+  filter(classification == "Subtype_other")   # Paradigm
 ```
 
 More information about TCGA molecular subtypes can be found [here](https://bioconductor.org/packages/release/bioc/vignettes/TCGAbiolinks/inst/doc/subtypes.html).
 
-We have available classifications based on miRNA, mRNA and DNAmeth. Subtype_Selected refers here to the integrative analysis clusterization with iCluster (let's use it also).
+We have available classifications based on miRNA, mRNA and DNAmeth. Subtype_Integrative and Subtype_other refers here to the integrative analysis clusterization with iCluster and Paradigm (let's use them also).
 
 ```{r}
 subtypes <- pancancer_subtypes %>% 
-  select(pan.samplesID, Subtype_miRNA, Subtype_mRNA, Subtype_DNAmeth, Subtype_Selected) %>%
+  select(pan.samplesID, Subtype_miRNA, Subtype_mRNA, Subtype_DNAmeth,
+         Subtype_Integrative, Subtype_other) %>%
   # change pan.samplesID notation to the format TCGA-XY-ABCD
   separate(pan.samplesID, c('a', 'b', 'c'), sep="-", extra = "drop", remove=TRUE) %>%
   unite(c(a, b, c), col='pan.samplesID', sep="-") %>%
   # change "#N/A" to NA (miRNA)
-  mutate(Subtype_miRNA=ifelse(Subtype_miRNA == "#N/A", NA, Subtype_miRNA))
+  mutate(Subtype_miRNA=ifelse(Subtype_miRNA == "#N/A", NA, Subtype_miRNA)) %>%
+  # rename some columns
+  rename(Subtype_iCluster=Subtype_Integrative, Subtype_Paradigm=Subtype_other)
 head(subtypes)
 ```
 
@@ -110,24 +116,26 @@ data <- samples %>%
       Subtype_miRNA=ifelse(is.na(Subtype_miRNA), 'miRNA.NA', Subtype_miRNA),
       Subtype_mRNA=ifelse(is.na(Subtype_mRNA), 'mRNA.NA', Subtype_mRNA),
       Subtype_DNAmeth=ifelse(is.na(Subtype_DNAmeth), "meth.NA", Subtype_DNAmeth),
-      Subtype_Selected=ifelse(is.na(Subtype_Selected), 'LIHC.NA', Subtype_Selected)
+      Subtype_iCluster=ifelse(is.na(Subtype_iCluster), 'iCluster.NA', Subtype_iCluster),
+      Subtype_Paradigm=ifelse(is.na(Subtype_Paradigm), 'Paradigm.NA', Subtype_Paradigm)
       )
 dim(data)
 ```
 
 ```{r}
 data %>%
-    group_by(Subtype_miRNA, Subtype_mRNA, Subtype_DNAmeth, Subtype_Selected) %>%
+    group_by(Subtype_miRNA, Subtype_mRNA, Subtype_DNAmeth, Subtype_iCluster, Subtype_Paradigm) %>%
     summarise(nsamples=n()) %>%
-    ggplot(aes(y=nsamples, 
-               axis1=Subtype_miRNA, axis2=Subtype_mRNA, axis3=Subtype_DNAmeth, axis4=Subtype_Selected)) +
-      geom_alluvium(aes(fill=Subtype_Selected), width = 0, knot.pos = 0, reverse = FALSE) +
+    ggplot(aes(y=nsamples, axis1=Subtype_miRNA, axis2=Subtype_mRNA, axis3=Subtype_DNAmeth,
+               axis4=Subtype_iCluster, axis5=Subtype_Paradigm)) +
+      geom_alluvium(aes(fill=Subtype_iCluster), width = 0, knot.pos = 0, reverse = FALSE) +
       guides(fill = FALSE) +
       geom_stratum(width = 1/3, reverse = FALSE) +
       geom_text(stat = "stratum", aes(label = after_stat(stratum)),
                 reverse = FALSE) +
-      scale_x_continuous(breaks = 1:4, 
-                         labels = c("Subtype miRNA", "Subtype mRNA", "Subtype DNAmeth","Subtype Selected")) +
+      scale_x_continuous(breaks = 1:5, 
+                         labels = c("Subtype miRNA", "Subtype mRNA", "Subtype DNAmeth",
+                                    "Subtype iCLuster", "Subtype Paradigm")) +
       labs(title="TCGA LIHC Subtypes", y="#samples")
 ```
 
