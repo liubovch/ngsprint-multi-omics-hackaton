@@ -112,7 +112,6 @@ exp_sim <- npz$f[['0']]
 met_sim <- npz$f[['1']]
 mirna_sim <- npz$f[['2']]
 sample_order <-  npz$f[['samples']]
-head(exp_sim)
 ```
 
 ```{r}
@@ -159,8 +158,19 @@ colnames(met_sim) <- sample_order
 # remove missing samples from the matrix for the visualization
 avail_samples <- colnames(met_sim)[rowSums(is.na(met_sim)) != dim(met_sim)[1]]
 
-Heatmap(met_sim[avail_samples, avail_samples], show_row_names=FALSE, show_column_names=FALSE,
-        name="DNA methylation SUMO similarity")
+DNAmeth_subtypes <- tibble(sample_codes=avail_samples) %>% 
+    left_join(subtypes_data, by = "sample_codes") # in order of avail_samples
+
+h <- Heatmap(met_sim[avail_samples, avail_samples], show_row_names=FALSE, show_column_names=FALSE,
+             name="DNAmeht expression SUMO similarity",
+        top_annotation=HeatmapAnnotation(subtype_DNAmeth=DNAmeth_subtypes$Subtype_DNAmeth,
+                                         col = list(subtype_DNAmeth=DNAmeth_subtypes_col),
+                                         annotation_name_gp= gpar(fontsize = 10)),
+        left_annotation=rowAnnotation(subtype_DNAmeth=DNAmeth_subtypes$Subtype_DNAmeth,
+                                      col = list(subtype_DNAmeth=DNAmeth_subtypes_col),
+                                      annotation_name_gp= gpar(fontsize = 10))
+)
+draw(h, merge_legend=TRUE)
 ```
 
 ## SUMO run
@@ -303,6 +313,151 @@ read_tsv(file.path(data_dir_path,'sumo', paste0('k', 5),'clusters.tsv'), show_co
     group_by(sumo_label_k5) %>%
     summarise(nsample=n())
 ```
+
+## Biological interpretation of results
+
+### The Kaplan-Meier survival analysis
+
+```{r}
+# read the survival data
+surv_data <-read_tsv(file.path(data_dir_path, "survival"), show_col_types = FALSE)
+
+surv_data <- surv_data %>% #unify sample ids
+    separate(PatientID, c('tcga', 'tss', 'participant', 'st'), sep="-") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st)
+
+surv_data <- subtypes_data %>% 
+    select(samples, Subtype_mRNA, Subtype_miRNA, Subtype_DNAmeth) %>%
+    left_join(surv_data, by = "samples") %>%
+    distinct()
+head(surv_data)
+dim(surv_data)
+```
+
+First, let's see if the groups of samples separated by the TCGA samples are different in terms of survival.
+
+```{r}
+ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_mRNA, data=surv_data), 
+           data=surv_data, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_miRNA, data=surv_data), 
+           data=surv_data, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(ncol = 2))
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_DNAmeth, data=surv_data), 
+           data=surv_data, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(ncol = 2))
+```
+
+Now let's investigate the recent SUMO clustering result
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k4', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k5', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k3', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k2', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k6', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels %>% 
+    filter(label==4) %>%
+    group_by(Subtype_DNAmeth) %>%
+    summarise(n_samples=n())
+```
+
+### Feature analysis
+
+#### SUMO interpret
+
+sumo interpret -t 4 aml/sumo/k4/sumo_results.npz aml/exp_sumo.tsv,aml/met_sumo.tsv,aml/mirna_sumo.tsv aml/interpret_k4
+
 
 
 
