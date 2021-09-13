@@ -1,0 +1,99 @@
+---
+title: "LIHC data integration SUMO"
+output: 
+    html_notebook: default
+    html_document: default
+---
+
+## Set up
+
+```{r}
+library(FactoMineR)
+library(tidyverse)
+library(ComplexHeatmap)
+library(ggpubr)
+library(iClusterPlus)
+library(tsne)
+#substitue the python path below, with the python used to install SUMO
+reticulate::use_python(Sys.which("/home/admin/miniconda3/bin/python"), required=TRUE)
+library(reticulate)
+library(survival)
+library(survminer)
+library(factoextra)
+library(GGally)
+library(ggalluvial)
+library(PINSPlus)
+```
+
+
+```{r}
+# Specify path to directory with downloaded data
+data_dir_path = "./data/liver/"
+stopifnot(file.exists(file.path(data_dir_path, 'exp_tr')) & file.exists(file.path(data_dir_path, 'methy')) & 
+          file.exists(file.path(data_dir_path, 'mirna_tr')))
+```
+
+```{r}
+# Inrease plot resolution in this notebook
+options(repr.plot.res=200)
+```
+
+```{r}
+# Load data, leave only primary solid tumor samples:
+data_exp <- read.table(file.path(data_dir_path, 'exp_tr')) %>% select(ends_with("01"))
+data_met <- read.table(file.path(data_dir_path, 'methy')) %>% select(ends_with("01"))
+data_mirna <- read.table(file.path(data_dir_path, 'mirna_tr')) %>% select(ends_with("01"))
+subtypes <- read_tsv("./data/TCGA_subtypes/LIHC_subtypes.tsv", show_col_types = FALSE)
+```
+
+```{r}
+# set color palettes we are going to use for subtype visualization
+exp_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 6),
+                            unique(na.omit(subtypes$Subtype_mRNA)))
+miRNA_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 6),
+                              unique(na.omit(subtypes$Subtype_miRNA)))
+DNAmeth_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 5),
+                                unique(na.omit(subtypes$Subtype_DNAmeth)))
+iCluster_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 4),
+                                 unique(na.omit(subtypes$Subtype_iCluster)))
+Paradigm_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 5),
+                                 unique(na.omit(subtypes$Subtype_Paradigm)))
+```
+
+```{r}
+subtypes_data <- tibble(sample_codes=colnames(bound_matrices)) %>%  #in order of columns in bound_matrices
+    left_join(subtypes, by = "sample_codes")  %>% 
+    mutate(exp = sample_codes %in% colnames(data_exp),
+           met = sample_codes %in% colnames(data_met),
+           mirna = sample_codes %in% colnames(data_mirna))
+head(subtypes_data)
+```
+
+## Data pre-processing
+
+```{r}
+normalize.matrix <- function(data.matrix) {
+  num = data.matrix - rowMeans(data.matrix, na.rm=TRUE)
+  return((num / apply(num, 1, function(x) sd(x, na.rm=TRUE))))
+}
+                      
+# prepare gene expression
+data_exp_norm <- normalize.matrix(data_exp)   
+# prepare miRNA expression
+data_mirna_norm <- normalize.matrix(data_mirna)   
+# prepare DNA methylation
+eps = .Machine$double.eps
+data_Mval <- log2(data_met + eps) / (1 - data_met + eps)
+data_Mval_norm <- normalize.matrix(data_Mval)
+                      
+# save data matrices into tab-delimited files
+write.table(data_exp_norm, file = file.path(data_dir_path, "exp_sumo.tsv"), sep = "\t",
+            row.names = TRUE, col.names = TRUE,)
+write.table(data_mirna_norm, file = file.path(data_dir_path, "mirna_sumo.tsv"), sep = "\t",
+            row.names = TRUE, col.names = TRUE,)
+write.table(data_Mval_norm, file = file.path(data_dir_path, "met_sumo.tsv"), sep = "\t",
+            row.names = TRUE, col.names = TRUE,)
+```
+
+
+
