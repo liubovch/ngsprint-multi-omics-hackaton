@@ -38,7 +38,7 @@ options(repr.plot.res=200)
 ```
 
 ```{r}
-# Load data, leave only primary tumor samples:
+# Load data, leave only primary solid tumor samples:
 data_exp <- read.table(file.path(data_dir_path, 'exp_tr')) %>% select(ends_with("01"))
 data_met <- read.table(file.path(data_dir_path, 'methy')) %>% select(ends_with("01"))
 data_mirna <- read.table(file.path(data_dir_path, 'mirna_tr')) %>% select(ends_with("01"))
@@ -72,10 +72,7 @@ subtypes_data <- tibble(sample_codes=colnames(bound_matrices)) %>%  #in order of
            mirna = sample_codes %in% colnames(data_mirna))
 head(subtypes_data)
 ```
-
-# Multi-omics data integration for unsupervised mulit-omics data integration
-
-## iCluster & iCluster+
+# iCluster & iCluster+
 
 ```{r}
 # 367 in total
@@ -94,6 +91,8 @@ exp.common.small <- exp.common %>% filter(row.names(exp.common) %in% most_variab
 ```
 
 **Here, we should tune the parameters.** Let's skip it for the moment.
+
+## try 3 clusters without any parameter tuning
 
 ```{r}
 # run the iClusterPlus function on common samples data set (this will take a couple of minutes)
@@ -143,5 +142,80 @@ icp.tsne.tbl %>%
     ggplot() + geom_point(aes(x=tSNE_1, y=tSNE_2, color=as.factor(icp_label), size=1, alpha=0.5)) + 
      labs(title="tSNE for iCluster+", color="iCluster+ label") + guides(alpha=FALSE, size=FALSE)
 ```
-So, we see that our separation is not the same at all as the existing data for iCluster subtypes. But, we do not know which data they integrated.
+So, we see that our separation is not the same at all as the existing data for iCluster subtypes. But, we also do not know which data they integrated. Hmm...
+
+## try tuning parameters
+
+```{r}
+# set.seed(123)
+# for(k in 1:5){
+#   cv.fit = tune.iClusterPlus(cpus=2, t(exp.common.small), t(met.common), t(mirna.common),
+#   type=rep("gaussian", 3), K=k,  scale.lambda=c(1,1,1))
+#   save(cv.fit, file=file.path(data_dir_path, paste("cv.fit.k", k, ".Rdata", sep="")))
+# }
+```
+Fuh, it takes tooooo long...
+
+## try 5 clusters without any parameter tuning
+
+```{r}
+r.icluster <- iClusterPlus(t(exp.common.small), t(met.common), t(mirna.common),
+  type=rep("gaussian", 3), # Providing the distributions
+  K=4, # (number of clusters is k+1)
+  alpha=c(1,1,1), # as well as other model parameters
+  lambda=c(.98,.98,.98))
+```
+
+```{r}
+# extract the H and W matrices from the run result
+# here, we refer to H as z, to keep with iCluster terminology
+icluster.z <- r.icluster$meanZ
+rownames(icluster.z) <- colnames(exp.common) # fix the row names
+icluster.ws <- r.icluster$beta
+```
+
+```{r}
+# insight into multiple pairs of factors
+as_tibble(icluster.z, rownames="sample_codes") %>% 
+    left_join(subtypes_data, by = "sample_codes") %>%
+    select(sample_codes, V1, V2, V3, V4, Subtype_mRNA) %>%
+    na.omit() %>%
+    ggpairs(columns=2:5, ggplot2::aes(col=Subtype_mRNA))
+```
+
+```{r}
+# We run tSNE for visualization purposes and inspect sample separation by existing subtypes
+icp.tsne <- tsne(icluster.z)
+icp.tsne.tbl <- as_tibble(icp.tsne) %>%
+    rename(tSNE_1=V1, tSNE_2=V2) %>%
+    mutate(sample_codes = colnames(exp.common))
+```
+
+```{r}
+p1 <- icp.tsne.tbl %>%
+    left_join(subtypes_data, by = "sample_codes") %>%
+    ggplot() + geom_point(aes(x=tSNE_1, y=tSNE_2, color=as.factor(Subtype_mRNA), size=1, alpha=0.5)) + 
+    labs(title="tSNE for iCluster+ [mRNA subtypes]", color="mRNA subtype") + guides(alpha=FALSE, size=FALSE) 
+p2 <- icp.tsne.tbl %>%
+    left_join(subtypes_data, by = "sample_codes") %>%
+    ggplot() + geom_point(aes(x=tSNE_1, y=tSNE_2, color=as.factor(Subtype_miRNA), size=1, alpha=0.5)) + 
+    labs(title="tSNE for iCluster+ [miRNA subtypes]", color="miRNA subtype") + guides(alpha=FALSE, size=FALSE) 
+p3 <- icp.tsne.tbl %>%
+    left_join(subtypes_data, by = "sample_codes") %>%
+    ggplot() + geom_point(aes(x=tSNE_1, y=tSNE_2, color=as.factor(Subtype_DNAmeth), size=1, alpha=0.5)) + 
+    labs(title="tSNE for iCluster+ [DNAmeth subtypes]", color="DNAmeth subtype") + guides(alpha=FALSE, size=FALSE) 
+
+
+p1
+p2
+p3
+
+icp.tsne.tbl %>%
+    left_join(subtypes_data, by = "sample_codes") %>%
+    mutate(icp_label=r.icluster$clusters) %>%
+    ggplot() + geom_point(aes(x=tSNE_1, y=tSNE_2, color=as.factor(icp_label), size=1, alpha=0.5)) + 
+     labs(title="tSNE for iCluster+", color="iCluster+ label") + guides(alpha=FALSE, size=FALSE)
+```
+Hmm...
+
 
