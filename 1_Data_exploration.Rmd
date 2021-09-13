@@ -1,5 +1,6 @@
 ---
 title: "Data exploration"
+author: "Karolina Sienkiewicz (modified by Liubov Chuprikova)"
 output: 
     html_notebook: default
     html_document: default
