@@ -47,17 +47,23 @@ subtypes <- read_tsv("./data/TCGA_subtypes/LIHC_subtypes.tsv", show_col_types = 
 ```
 
 ```{r}
+na.color <- "#ECECEC"  # use grey for all
 # set color palettes we are going to use for subtype visualization
 exp_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 6),
                             unique(na.omit(subtypes$Subtype_mRNA)))
+exp_subtypes_col["mRNA.NA"] <- na.color
 miRNA_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 6),
                               unique(na.omit(subtypes$Subtype_miRNA)))
+miRNA_subtypes_col["miRNA.NA"] <- na.color
 DNAmeth_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 5),
                                 unique(na.omit(subtypes$Subtype_DNAmeth)))
+DNAmeth_subtypes_col["meth.NA"] <- na.color
 iCluster_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 4),
                                  unique(na.omit(subtypes$Subtype_iCluster)))
+iCluster_subtypes_col["iCluster.NA"] <- na.color
 Paradigm_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 5),
                                  unique(na.omit(subtypes$Subtype_Paradigm)))
+Paradigm_subtypes_col["Paradigm.NA"] <- na.color
 ```
 
 ```{r}
@@ -179,7 +185,7 @@ sumo run aml/prepared.aml.npz 5 aml/sumo_k5
 
 ```{r}
 np <- import("numpy")
-npz <- np$load(file.path(data_dir_path,'sumo_k5','k5','sumo_results.npz'), allow_pickle=TRUE)
+npz <- np$load(file.path(data_dir_path,'sumo','k4','sumo_results.npz'), allow_pickle=TRUE)
 npz$files
 ```
 
@@ -276,19 +282,25 @@ read_tsv(file.path(data_dir_path,'sumo', paste0('k', 2),'clusters.tsv'), show_co
     full_join(read_tsv(file.path(data_dir_path,'sumo', paste0('k', 5),'clusters.tsv'), 
                        show_col_types = FALSE), by = "sample") %>%
     rename(sumo_label_k5=label) %>%
+    full_join(read_tsv(file.path(data_dir_path,'sumo', paste0('k', 6),'clusters.tsv'), 
+                       show_col_types = FALSE), by = "sample") %>%
+    rename(sumo_label_k6=label) %>%
     mutate(sumo_label_k2=as.factor(sumo_label_k2), sumo_label_k3=as.factor(sumo_label_k3),
-           sumo_label_k4=as.factor(sumo_label_k4), sumo_label_k5=as.factor(sumo_label_k5)) %>%
-    group_by(sumo_label_k2, sumo_label_k3, sumo_label_k4, sumo_label_k5) %>%
+           sumo_label_k4=as.factor(sumo_label_k4), sumo_label_k5=as.factor(sumo_label_k5),
+           sumo_label_k6=as.factor(sumo_label_k6)) %>%
+    group_by(sumo_label_k2, sumo_label_k3, sumo_label_k4, sumo_label_k5, sumo_label_k6) %>%
     summarise(nsamples=n()) %>%
-    ggplot(aes(y=nsamples, axis1=sumo_label_k2, axis2=sumo_label_k3, axis3=sumo_label_k4, axis4=sumo_label_k5)) +
-      geom_alluvium(aes(fill=sumo_label_k5), width = 0, knot.pos = 0, reverse = FALSE) +
+    ggplot(aes(y=nsamples, axis1=sumo_label_k2, axis2=sumo_label_k3, axis3=sumo_label_k4, 
+               axis4=sumo_label_k5, axis5=sumo_label_k6)) +
+      geom_alluvium(aes(fill=sumo_label_k2), width = 0, knot.pos = 0, reverse = FALSE) +
       guides(fill = FALSE) +
       geom_stratum(width = 1/12, reverse = FALSE) +
       geom_text(stat = "stratum", aes(label = after_stat(stratum)),
                 reverse = FALSE) +
-      scale_x_continuous(breaks = 1:4, labels = c("SUMO k=2","SUMO k=3", "SUMO k=4", "SUMO k=5")) +
+      scale_x_continuous(breaks = 1:5, labels = c("SUMO k=2","SUMO k=3", "SUMO k=4", "SUMO k=5", "SUMO k=6")) +
       labs(title="SUMO", y="#samples")
 ```
+**NOTE: take a look at the widest blue line stretching along the plot (very stable?). Some red lines are also interesting.**
 
 ```{r}
 read_tsv(file.path(data_dir_path,'sumo', paste0('k', 2),'clusters.tsv'), show_col_types = FALSE)  %>%
@@ -343,7 +355,8 @@ ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_mRNA, data=surv_data),
            palette = "npg", 
            pval = TRUE,
            ggtheme = theme_bw(), 
-           risk.table = TRUE) +
+           risk.table = TRUE,
+           fontsize=2) +
     guides(colour = guide_legend(nrow = 2))
 
 ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_miRNA, data=surv_data), 
@@ -351,7 +364,8 @@ ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_miRNA, data=surv_data),
            palette = "npg", 
            pval = TRUE,
            ggtheme = theme_bw(), 
-           risk.table = TRUE) +
+           risk.table = TRUE,
+           fontsize=2) +
     guides(colour = guide_legend(ncol = 2))
 
 ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_DNAmeth, data=surv_data), 
@@ -359,7 +373,8 @@ ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_DNAmeth, data=surv_data),
            palette = "npg", 
            pval = TRUE,
            ggtheme = theme_bw(), 
-           risk.table = TRUE) +
+           risk.table = TRUE,
+           fontsize=2) +
     guides(colour = guide_legend(ncol = 2))
 ```
 
@@ -377,7 +392,8 @@ ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels),
            palette = "npg", 
            pval = TRUE,
            ggtheme = theme_bw(), 
-           risk.table = TRUE) +
+           risk.table = TRUE,
+           fontsize=2) +
     guides(colour = guide_legend(nrow = 2))
 ```
 
@@ -393,7 +409,8 @@ ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels),
            palette = "npg", 
            pval = TRUE,
            ggtheme = theme_bw(), 
-           risk.table = TRUE) +
+           risk.table = TRUE,
+           fontsize=2) +
     guides(colour = guide_legend(nrow = 2))
 ```
 
@@ -409,7 +426,8 @@ ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels),
            palette = "npg", 
            pval = TRUE,
            ggtheme = theme_bw(), 
-           risk.table = TRUE) +
+           risk.table = TRUE,
+           fontsize=2) +
     guides(colour = guide_legend(nrow = 2))
 ```
 
@@ -425,7 +443,8 @@ ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels),
            palette = "npg", 
            pval = TRUE,
            ggtheme = theme_bw(), 
-           risk.table = TRUE) +
+           risk.table = TRUE,
+           fontsize=2) +
     guides(colour = guide_legend(nrow = 2))
 ```
 
@@ -441,7 +460,8 @@ ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels),
            palette = "npg", 
            pval = TRUE,
            ggtheme = theme_bw(), 
-           risk.table = TRUE) +
+           risk.table = TRUE,
+           fontsize=2) +
     guides(colour = guide_legend(nrow = 2))
 ```
 
@@ -459,6 +479,12 @@ sumo_labels %>%
 sumo interpret -t 4 aml/sumo/k4/sumo_results.npz aml/exp_sumo.tsv,aml/met_sumo.tsv,aml/mirna_sumo.tsv aml/interpret_k4
 
 ```{r}
+bound_matrices <- plyr::rbind.fill(data_exp, data_met, data_mirna) # matrix concatenation
+rownames(bound_matrices) <- c(rownames(data_exp), rownames(data_met), rownames(data_mirna))
+dim(bound_matrices)
+```
+
+```{r}
 data <- read_tsv(file.path(data_dir_path, 'interpret_k4.tsv'), show_col_types = FALSE) %>%
     gather(group, importance, -feature)
 labels <- read_tsv(file.path(data_dir_path, 'sumo', 'k4', 'clusters.tsv'), show_col_types = FALSE)
@@ -471,8 +497,8 @@ top_features
 ```
 
 ```{r}
-top_features_values <- data_met %>%
-  filter(row.names(data_met) %in% top_features$feature) %>% 
+top_features_values <- bound_matrices %>%
+  filter(row.names(bound_matrices) %in% top_features$feature) %>% 
   t() %>% as.data.frame() %>%
   tibble::rownames_to_column(var = "sample") %>%
   left_join(labels, by = "sample") %>%
@@ -482,21 +508,26 @@ colnames(top_features_values)
 
 ```{r}
 p_values.kruskal <- sapply(c(2:7), function(x){
-  kruskal.test(top_features_values[, x] ~ top_features_values$label)$p.value
+  kruskal.test(top_features_values[, x] ~ factor(top_features_values$chosen_label))$p.value
 })
 p_values.kruskal
 ```
 
 ```{r}
+plot_labels <- paste(top_features$feature, "p =", as.character(formatC(p_values.kruskal, format = "e", digits = 2)))
+names(plot_labels) <- top_features$feature
+
 top_features_values %>%
-  gather(gene_name, exp_value, cg00187686:cg22990955, factor_key = TRUE) %>%
+  gather(gene_name, exp_value, 2:7, factor_key = TRUE) %>%
   ggplot(aes(factor(label), exp_value, colour = factor(chosen_label))) +
   geom_violin(trim = FALSE) + 
-  geom_jitter(width = 0.1) +
-  facet_wrap(~gene_name)
+  geom_jitter(width = 0.1, size = 0.1) +
+  scale_colour_discrete(name  ="label of interest") +
+  facet_wrap(~gene_name, labeller = labeller(gene_name = plot_labels)) +
+  theme(strip.text = element_text(size=7))
 ```
 
-**BUT, Let's better try with k=3 label=2 and k=6 label=4**
+**BUT, Let's better try with k=3 label=2 and k=6 label=4, because they were different in the survival analysis.**
 
 ```{r}
 data <- read_tsv(file.path(data_dir_path, 'interpret_k3.tsv'), show_col_types = FALSE) %>%
@@ -511,8 +542,8 @@ top_features
 ```
 
 ```{r}
-top_features_values <- data_met %>%
-  filter(row.names(data_met) %in% top_features$feature) %>% 
+top_features_values <- bound_matrices %>%
+  filter(row.names(bound_matrices) %in% top_features$feature) %>% 
   t() %>% as.data.frame() %>%
   tibble::rownames_to_column(var = "sample") %>%
   left_join(labels, by = "sample") %>%
@@ -522,19 +553,23 @@ colnames(top_features_values)
 
 ```{r}
 p_values.kruskal <- sapply(c(2:7), function(x){
-  kruskal.test(top_features_values[, x] ~ top_features_values$label)$p.value
+  kruskal.test(top_features_values[, x] ~ factor(top_features_values$chosen_label))$p.value
 })
 p_values.kruskal
 ```
 
 ```{r}
+plot_labels <- paste(top_features$feature, "p =", as.character(formatC(p_values.kruskal, format = "e", digits = 2)))
+names(plot_labels) <- top_features$feature
+
 top_features_values %>%
   gather(gene_name, exp_value, 2:7, factor_key = TRUE) %>%
   ggplot(aes(factor(label), exp_value, colour = factor(chosen_label))) +
   geom_violin(trim = FALSE) + 
   geom_jitter(width = 0.1, size = 0.1) +
-  facet_wrap(~gene_name) +
-  scale_colour_discrete(name  ="label of interest")
+  scale_colour_discrete(name  ="label of interest") +
+  facet_wrap(~gene_name, labeller = labeller(gene_name = plot_labels)) +
+  theme(strip.text = element_text(size=7))
 ```
 
 ```{r}
@@ -550,12 +585,6 @@ top_features
 ```
 
 ```{r}
-bound_matrices <- plyr::rbind.fill(data_exp, data_met, data_mirna) # matrix concatenation
-rownames(bound_matrices) <- c(rownames(data_exp), rownames(data_met), rownames(data_mirna))
-dim(bound_matrices)
-```
-
-```{r}
 top_features_values <- bound_matrices %>%
   filter(row.names(bound_matrices) %in% top_features$feature) %>% 
   t() %>% as.data.frame() %>%
@@ -567,19 +596,23 @@ colnames(top_features_values)
 
 ```{r}
 p_values.kruskal <- sapply(c(2:7), function(x){
-  kruskal.test(top_features_values[, x] ~ top_features_values$label)$p.value
+  kruskal.test(top_features_values[, x] ~ factor(top_features_values$chosen_label))$p.value
 })
 p_values.kruskal
 ```
 
 ```{r}
+plot_labels <- paste(top_features$feature, "p =", as.character(formatC(p_values.kruskal, format = "e", digits = 2)))
+names(plot_labels) <- top_features$feature
+
 top_features_values %>%
   gather(gene_name, exp_value, 2:7, factor_key = TRUE) %>%
   ggplot(aes(factor(label), exp_value, colour = factor(chosen_label))) +
   geom_violin(trim = FALSE) + 
   geom_jitter(width = 0.1, size = 0.1) +
-  facet_wrap(~gene_name) +
-  scale_colour_discrete(name  ="label of interest")
+  scale_colour_discrete(name  ="label of interest") +
+  facet_wrap(~gene_name, labeller = labeller(gene_name = plot_labels)) +
+  theme(strip.text = element_text(size=7))
 ```
 
 
