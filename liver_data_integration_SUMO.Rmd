@@ -15,7 +15,7 @@ library(ggpubr)
 library(iClusterPlus)
 library(tsne)
 #substitue the python path below, with the python used to install SUMO
-reticulate::use_python(Sys.which("/home/admin/miniconda3/bin/python"), required=TRUE)
+reticulate::use_python(Sys.which('/home/admin/miniconda3/envs/r-reticulate/bin/python'), required=TRUE)
 library(reticulate)
 library(survival)
 library(survminer)
@@ -175,7 +175,7 @@ draw(h, merge_legend=TRUE)
 
 ## SUMO run
 
-sumo run aml/prepared.aml.npz 7 aml/sumo_k7
+sumo run aml/prepared.aml.npz 5 aml/sumo_k5
 
 ```{r}
 np <- import("numpy")
@@ -458,8 +458,39 @@ sumo_labels %>%
 
 sumo interpret -t 4 aml/sumo/k4/sumo_results.npz aml/exp_sumo.tsv,aml/met_sumo.tsv,aml/mirna_sumo.tsv aml/interpret_k4
 
+```{r}
+data <- read_tsv(file.path(data_dir_path, 'interpret_k4.tsv'), show_col_types = FALSE) %>%
+    gather(group, importance, -feature)
+labels <- read_tsv(file.path(data_dir_path, 'sumo', 'k4', 'clusters.tsv'), show_col_types = FALSE)
+selected_label <- 1
 
+top_features <- data %>% 
+    filter(group == paste("GROUP", selected_label, sep="_")) %>% 
+    arrange(desc(importance)) %>% top_n(6, importance)
+top_features
+```
 
+```{r}
+top_features_values <- data_met %>%
+  filter(row.names(data_met) %in% top_features$feature) %>% 
+  t() %>% as.data.frame() %>%
+  tibble::rownames_to_column(var = "sample") %>%
+  left_join(labels, by = "sample") %>%
+  mutate(chosen_label = label == 1)
+colnames(top_features_values)
+```
 
+```{r}
+kruskal.test(cg00187686 ~ label, data = top_features_values)
+```
+
+```{r}
+top_features_values %>%
+  gather(gene_name, exp_value, cg00187686:cg22990955, factor_key = TRUE) %>%
+  ggplot(aes(factor(label), exp_value, colour = factor(chosen_label))) +
+  geom_violin(trim = FALSE) + 
+  geom_jitter(width = 0.1) +
+  facet_wrap(~gene_name)
+```
 
 
