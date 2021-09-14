@@ -1,0 +1,465 @@
+---
+title: "LIHC data integration SUMO"
+output: 
+    html_notebook: default
+    html_document: default
+---
+
+## Set up
+
+```{r}
+library(FactoMineR)
+library(tidyverse)
+library(ComplexHeatmap)
+library(ggpubr)
+library(iClusterPlus)
+library(tsne)
+#substitue the python path below, with the python used to install SUMO
+reticulate::use_python(Sys.which("/home/admin/miniconda3/bin/python"), required=TRUE)
+library(reticulate)
+library(survival)
+library(survminer)
+library(factoextra)
+library(GGally)
+library(ggalluvial)
+library(PINSPlus)
+```
+
+
+```{r}
+# Specify path to directory with downloaded data
+data_dir_path = "./data/liver/"
+stopifnot(file.exists(file.path(data_dir_path, 'exp_tr')) & file.exists(file.path(data_dir_path, 'methy')) & 
+          file.exists(file.path(data_dir_path, 'mirna_tr')))
+```
+
+```{r}
+# Inrease plot resolution in this notebook
+options(repr.plot.res=200)
+```
+
+```{r}
+# Load data, leave only primary solid tumor samples:
+data_exp <- read.table(file.path(data_dir_path, 'exp_tr')) %>% select(ends_with("01"))
+data_met <- read.table(file.path(data_dir_path, 'methy')) %>% select(ends_with("01"))
+data_mirna <- read.table(file.path(data_dir_path, 'mirna_tr')) %>% select(ends_with("01"))
+subtypes <- read_tsv("./data/TCGA_subtypes/LIHC_subtypes.tsv", show_col_types = FALSE)
+```
+
+```{r}
+# set color palettes we are going to use for subtype visualization
+exp_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 6),
+                            unique(na.omit(subtypes$Subtype_mRNA)))
+miRNA_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 6),
+                              unique(na.omit(subtypes$Subtype_miRNA)))
+DNAmeth_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 5),
+                                unique(na.omit(subtypes$Subtype_DNAmeth)))
+iCluster_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 4),
+                                 unique(na.omit(subtypes$Subtype_iCluster)))
+Paradigm_subtypes_col = setNames(RColorBrewer::brewer.pal(name = "Set2", n = 5),
+                                 unique(na.omit(subtypes$Subtype_Paradigm)))
+```
+
+```{r}
+subtypes_data <- tibble(sample_codes=colnames(bound_matrices)) %>%  #in order of columns in bound_matrices
+    left_join(subtypes, by = "sample_codes")  %>% 
+    mutate(exp = sample_codes %in% colnames(data_exp),
+           met = sample_codes %in% colnames(data_met),
+           mirna = sample_codes %in% colnames(data_mirna))
+head(subtypes_data)
+```
+
+## Data pre-processing
+
+```{r}
+normalize.matrix <- function(data.matrix) {
+  num = data.matrix - rowMeans(data.matrix, na.rm=TRUE)
+  return((num / apply(num, 1, function(x) sd(x, na.rm=TRUE))))
+}
+                      
+# prepare gene expression
+data_exp_norm <- normalize.matrix(data_exp)   
+# prepare miRNA expression
+data_mirna_norm <- normalize.matrix(data_mirna)   
+# prepare DNA methylation
+eps = .Machine$double.eps
+data_Mval <- log2(data_met + eps) / (1 - data_met + eps)
+data_Mval_norm <- normalize.matrix(data_Mval)
+                      
+# save data matrices into tab-delimited files
+write.table(data_exp_norm, file = file.path(data_dir_path, "exp_sumo.tsv"), sep = "\t",
+            row.names = TRUE, col.names = TRUE,)
+write.table(data_mirna_norm, file = file.path(data_dir_path, "mirna_sumo.tsv"), sep = "\t",
+            row.names = TRUE, col.names = TRUE,)
+write.table(data_Mval_norm, file = file.path(data_dir_path, "met_sumo.tsv"), sep = "\t",
+            row.names = TRUE, col.names = TRUE,)
+```
+
+## SUMO prepare
+
+sumo prepare -plot aml/sumo_prepare aml/exp_sumo.tsv,aml/met_sumo.tsv,aml/mirna_sumo.tsv aml/prepared.aml.npz
+
+```{r}
+# how to read .npz files in R with reticulate
+np <- import("numpy")
+npz <- np$load("./data/liver/prepared.liver.npz", allow_pickle=TRUE)
+npz$files
+```
+
+```{r}
+# here is the similarity matrix for first data type (in order given to sumo prepare)
+exp_sim <- npz$f[['0']]
+met_sim <- npz$f[['1']]
+mirna_sim <- npz$f[['2']]
+sample_order <-  npz$f[['samples']]
+```
+
+```{r}
+rownames(exp_sim) <- sample_order
+colnames(exp_sim) <- sample_order
+# remove missing samples from the matrix for the visualization
+avail_samples <- colnames(exp_sim)[rowSums(is.na(exp_sim)) != dim(exp_sim)[1]]
+
+exp_subtypes <- tibble(sample_codes=avail_samples) %>% 
+    left_join(subtypes_data, by = "sample_codes") # in order of avail_samples
+
+h <- Heatmap(exp_sim[avail_samples, avail_samples], show_row_names=FALSE, show_column_names=FALSE,
+        name="Gene expression SUMO similarity", 
+        top_annotation=HeatmapAnnotation(subtype_mRNA=exp_subtypes$Subtype_mRNA,
+                                         col = list(subtype_mRNA=exp_subtypes_col),
+                                         annotation_name_gp= gpar(fontsize = 10)),
+        left_annotation=rowAnnotation(subtype_mRNA=exp_subtypes$Subtype_mRNA,
+                                      col = list(subtype_mRNA=exp_subtypes_col),
+                                      annotation_name_gp= gpar(fontsize = 10))
+)
+draw(h, merge_legend=TRUE)
+
+rownames(mirna_sim) <- sample_order
+colnames(mirna_sim) <- sample_order
+# remove missing samples from the matrix for the visualization
+avail_samples <- colnames(mirna_sim)[rowSums(is.na(mirna_sim)) != dim(mirna_sim)[1]]
+
+mirna_subtypes <- tibble(sample_codes=avail_samples) %>% 
+    left_join(subtypes_data, by = "sample_codes") # in order of avail_samples
+
+h <- Heatmap(mirna_sim[avail_samples, avail_samples], show_row_names=FALSE, show_column_names=FALSE,
+             name="miRNA expression SUMO similarity",
+        top_annotation=HeatmapAnnotation(subtype_miRNA=mirna_subtypes$Subtype_miRNA,
+                                         col = list(subtype_miRNA=miRNA_subtypes_col),
+                                         annotation_name_gp= gpar(fontsize = 10)),
+        left_annotation=rowAnnotation(subtype_miRNA=mirna_subtypes$Subtype_miRNA,
+                                      col = list(subtype_miRNA=miRNA_subtypes_col),
+                                      annotation_name_gp= gpar(fontsize = 10))
+)
+draw(h, merge_legend=TRUE)
+
+rownames(met_sim) <- sample_order
+colnames(met_sim) <- sample_order
+# remove missing samples from the matrix for the visualization
+avail_samples <- colnames(met_sim)[rowSums(is.na(met_sim)) != dim(met_sim)[1]]
+
+DNAmeth_subtypes <- tibble(sample_codes=avail_samples) %>% 
+    left_join(subtypes_data, by = "sample_codes") # in order of avail_samples
+
+h <- Heatmap(met_sim[avail_samples, avail_samples], show_row_names=FALSE, show_column_names=FALSE,
+             name="DNAmeht expression SUMO similarity",
+        top_annotation=HeatmapAnnotation(subtype_DNAmeth=DNAmeth_subtypes$Subtype_DNAmeth,
+                                         col = list(subtype_DNAmeth=DNAmeth_subtypes_col),
+                                         annotation_name_gp= gpar(fontsize = 10)),
+        left_annotation=rowAnnotation(subtype_DNAmeth=DNAmeth_subtypes$Subtype_DNAmeth,
+                                      col = list(subtype_DNAmeth=DNAmeth_subtypes_col),
+                                      annotation_name_gp= gpar(fontsize = 10))
+)
+draw(h, merge_legend=TRUE)
+```
+
+## SUMO run
+
+sumo run aml/prepared.aml.npz 7 aml/sumo_k7
+
+```{r}
+np <- import("numpy")
+npz <- np$load(file.path(data_dir_path,'sumo_k5','k5','sumo_results.npz'), allow_pickle=TRUE)
+npz$files
+```
+
+```{r}
+sample_order <-  npz$f[['samples']]
+con <- npz$f[['consensus']]
+rownames(con) <- sample_order
+colnames(con) <- sample_order
+con_subtypes <- tibble(sample_codes=sample_order) %>% 
+    left_join(subtypes_data, by = "sample_codes") # in order of sample_order
+
+h <- Heatmap(con, show_row_names=FALSE, show_column_names=FALSE,
+        name="SUMO k=5 consensus matrix", 
+        top_annotation=HeatmapAnnotation(subtype_mRNA=con_subtypes$Subtype_mRNA,
+                                         col = list(subtype_mRNA=exp_subtypes_col),
+                                         annotation_name_gp= gpar(fontsize = 10)),
+        left_annotation=rowAnnotation(subtype_miRNA=con_subtypes$Subtype_miRNA,
+                                      col = list(subtype_miRNA=miRNA_subtypes_col),
+                                      annotation_name_gp= gpar(fontsize = 10))
+)
+draw(h, annotation_legend_side="right")
+
+h <- Heatmap(con, show_row_names=FALSE, show_column_names=FALSE,
+        name="SUMO k=5 consensus matrix", 
+        top_annotation=HeatmapAnnotation(subtype_mRNA=con_subtypes$Subtype_mRNA,
+                                         col = list(subtype_mRNA=exp_subtypes_col),
+                                         annotation_name_gp= gpar(fontsize = 10)),
+        left_annotation=rowAnnotation(subtype_DNAmeth=con_subtypes$Subtype_DNAmeth,
+                                      col = list(subtype_DNAmeth=DNAmeth_subtypes_col),
+                                      annotation_name_gp= gpar(fontsize = 10))
+)
+draw(h, annotation_legend_side="right")
+
+h <- Heatmap(con, show_row_names=FALSE, show_column_names=FALSE,
+        name="SUMO k=5 consensus matrix", 
+        top_annotation=HeatmapAnnotation(subtype_miRNA=con_subtypes$Subtype_miRNA,
+                                         col = list(subtype_miRNA=miRNA_subtypes_col),
+                                         annotation_name_gp= gpar(fontsize = 10)),
+        left_annotation=rowAnnotation(subtype_DNAmeth=con_subtypes$Subtype_DNAmeth,
+                                      col = list(subtype_DNAmeth=DNAmeth_subtypes_col),
+                                      annotation_name_gp= gpar(fontsize = 10))
+)
+draw(h, annotation_legend_side="right")
+```
+
+## How many sample clusters are in our data?
+
+sumo run -t 4 aml/prepared.aml.npz 2,10 aml/sumo
+
+```{r}
+# let's plot the clustering metrics for all "k"
+np <- import("numpy")
+
+pac <- sapply(2:10, function(x){
+    npz <- np$load(file.path(data_dir_path,'sumo', paste0('k', x),'sumo_results.npz'), allow_pickle=TRUE)
+    return(npz$f[['pac']])
+})
+
+ccc <- sapply(2:10, function(x){
+    npz <- np$load(file.path(data_dir_path,'sumo', paste0('k', x),'sumo_results.npz'), allow_pickle=TRUE)
+    return(npz$f[['cophenet']])
+})
+
+colnames(pac) <- paste0(2:10)
+pac <- as_tibble(pac) %>% gather(k, 'pac')
+colnames(ccc) <- paste0(2:10)
+
+as_tibble(ccc) %>% 
+    gather(k, 'ccc') %>%
+    full_join(pac, by = "k") %>%
+    gather(metric, value, -k) %>%
+    group_by(k, metric) %>%
+    summarise(med=median(value), min=min(value), max=max(value)) %>%
+    mutate(k=as.numeric(k)) %>%
+    ggplot() +
+    geom_line(aes(x=k, y=med, color=metric, group=metric), size=1) + 
+    geom_point(aes(x=k, y=med, color=metric), size=2) + 
+    geom_ribbon(aes(x=k, ymin=min, ymax=max, fill=metric), alpha=0.2) +
+    facet_wrap(metric~., scales="free", ncol=1) +
+theme(legend.position="null")
+```
+
+It seems that 2, 3, 4 and 5 clusters are OK.
+
+```{r}
+read_tsv(file.path(data_dir_path,'sumo', paste0('k', 2),'clusters.tsv'), show_col_types = FALSE)  %>%
+    rename(sumo_label_k2=label) %>%
+    full_join(read_tsv(file.path(data_dir_path,'sumo', paste0('k', 3),'clusters.tsv'), 
+                       show_col_types = FALSE), by = "sample") %>%
+    rename(sumo_label_k3=label) %>%
+    full_join(read_tsv(file.path(data_dir_path,'sumo', paste0('k', 4),'clusters.tsv'), 
+                       show_col_types = FALSE), by = "sample") %>%
+    rename(sumo_label_k4=label) %>%
+    full_join(read_tsv(file.path(data_dir_path,'sumo', paste0('k', 5),'clusters.tsv'), 
+                       show_col_types = FALSE), by = "sample") %>%
+    rename(sumo_label_k5=label) %>%
+    mutate(sumo_label_k2=as.factor(sumo_label_k2), sumo_label_k3=as.factor(sumo_label_k3),
+           sumo_label_k4=as.factor(sumo_label_k4), sumo_label_k5=as.factor(sumo_label_k5)) %>%
+    group_by(sumo_label_k2, sumo_label_k3, sumo_label_k4, sumo_label_k5) %>%
+    summarise(nsamples=n()) %>%
+    ggplot(aes(y=nsamples, axis1=sumo_label_k2, axis2=sumo_label_k3, axis3=sumo_label_k4, axis4=sumo_label_k5)) +
+      geom_alluvium(aes(fill=sumo_label_k5), width = 0, knot.pos = 0, reverse = FALSE) +
+      guides(fill = FALSE) +
+      geom_stratum(width = 1/12, reverse = FALSE) +
+      geom_text(stat = "stratum", aes(label = after_stat(stratum)),
+                reverse = FALSE) +
+      scale_x_continuous(breaks = 1:4, labels = c("SUMO k=2","SUMO k=3", "SUMO k=4", "SUMO k=5")) +
+      labs(title="SUMO", y="#samples")
+```
+
+```{r}
+read_tsv(file.path(data_dir_path,'sumo', paste0('k', 2),'clusters.tsv'), show_col_types = FALSE)  %>%
+    rename(sumo_label_k2=label) %>%
+    group_by(sumo_label_k2) %>%
+    summarise(nsample=n())
+
+read_tsv(file.path(data_dir_path,'sumo', paste0('k', 3),'clusters.tsv'), show_col_types = FALSE)  %>%
+    rename(sumo_label_k3=label) %>%
+    group_by(sumo_label_k3) %>%
+    summarise(nsample=n())
+```
+
+```{r}
+read_tsv(file.path(data_dir_path,'sumo', paste0('k', 4),'clusters.tsv'), show_col_types = FALSE)  %>%
+    rename(sumo_label_k4=label) %>%
+    group_by(sumo_label_k4) %>%
+    summarise(nsample=n())
+
+read_tsv(file.path(data_dir_path,'sumo', paste0('k', 5),'clusters.tsv'), show_col_types = FALSE)  %>%
+    rename(sumo_label_k5=label) %>%
+    group_by(sumo_label_k5) %>%
+    summarise(nsample=n())
+```
+
+## Biological interpretation of results
+
+### The Kaplan-Meier survival analysis
+
+```{r}
+# read the survival data
+surv_data <-read_tsv(file.path(data_dir_path, "survival"), show_col_types = FALSE)
+
+surv_data <- surv_data %>% #unify sample ids
+    separate(PatientID, c('tcga', 'tss', 'participant', 'st'), sep="-") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st)
+
+surv_data <- subtypes_data %>% 
+    select(samples, Subtype_mRNA, Subtype_miRNA, Subtype_DNAmeth) %>%
+    left_join(surv_data, by = "samples") %>%
+    distinct()
+head(surv_data)
+dim(surv_data)
+```
+
+First, let's see if the groups of samples separated by the TCGA samples are different in terms of survival.
+
+```{r}
+ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_mRNA, data=surv_data), 
+           data=surv_data, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_miRNA, data=surv_data), 
+           data=surv_data, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(ncol = 2))
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ Subtype_DNAmeth, data=surv_data), 
+           data=surv_data, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(ncol = 2))
+```
+
+Now let's investigate the recent SUMO clustering result
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k4', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k5', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k3', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k2', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels <- read_tsv(file.path(data_dir_path, "sumo", 'k6', 'clusters.tsv'), show_col_types = FALSE) %>%
+    separate(sample, c('tcga', 'tss', 'participant', 'st'), sep="\\.") %>%
+    unite(c(tcga, tss, participant), col="samples", sep="-") %>%
+    select(-st) %>%
+    left_join(surv_data, by = "samples")
+
+ggsurvplot(survfit(Surv(Survival, Death) ~ label, data=sumo_labels), 
+           data=sumo_labels, 
+           palette = "npg", 
+           pval = TRUE,
+           ggtheme = theme_bw(), 
+           risk.table = TRUE) +
+    guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+sumo_labels %>% 
+    filter(label==4) %>%
+    group_by(Subtype_DNAmeth) %>%
+    summarise(n_samples=n())
+```
+
+### Feature analysis
+
+#### SUMO interpret
+
+sumo interpret -t 4 aml/sumo/k4/sumo_results.npz aml/exp_sumo.tsv,aml/met_sumo.tsv,aml/mirna_sumo.tsv aml/interpret_k4
+
+
+
+
+
+
