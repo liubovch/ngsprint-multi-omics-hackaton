@@ -476,12 +476,15 @@ top_features_values <- data_met %>%
   t() %>% as.data.frame() %>%
   tibble::rownames_to_column(var = "sample") %>%
   left_join(labels, by = "sample") %>%
-  mutate(chosen_label = label == 1)
+  mutate(chosen_label = label == selected_label)
 colnames(top_features_values)
 ```
 
 ```{r}
-kruskal.test(cg00187686 ~ label, data = top_features_values)
+p_values.kruskal <- sapply(c(2:7), function(x){
+  kruskal.test(top_features_values[, x] ~ top_features_values$label)$p.value
+})
+p_values.kruskal
 ```
 
 ```{r}
@@ -492,5 +495,93 @@ top_features_values %>%
   geom_jitter(width = 0.1) +
   facet_wrap(~gene_name)
 ```
+
+**BUT, Let's better try with k=3 label=2 and k=6 label=4**
+
+```{r}
+data <- read_tsv(file.path(data_dir_path, 'interpret_k3.tsv'), show_col_types = FALSE) %>%
+    gather(group, importance, -feature)
+labels <- read_tsv(file.path(data_dir_path, 'sumo', 'k3', 'clusters.tsv'), show_col_types = FALSE)
+selected_label <- 2
+
+top_features <- data %>% 
+    filter(group == paste("GROUP", selected_label, sep="_")) %>% 
+    arrange(desc(importance)) %>% top_n(6, importance)
+top_features
+```
+
+```{r}
+top_features_values <- data_met %>%
+  filter(row.names(data_met) %in% top_features$feature) %>% 
+  t() %>% as.data.frame() %>%
+  tibble::rownames_to_column(var = "sample") %>%
+  left_join(labels, by = "sample") %>%
+  mutate(chosen_label = label == selected_label)
+colnames(top_features_values)
+```
+
+```{r}
+p_values.kruskal <- sapply(c(2:7), function(x){
+  kruskal.test(top_features_values[, x] ~ top_features_values$label)$p.value
+})
+p_values.kruskal
+```
+
+```{r}
+top_features_values %>%
+  gather(gene_name, exp_value, 2:7, factor_key = TRUE) %>%
+  ggplot(aes(factor(label), exp_value, colour = factor(chosen_label))) +
+  geom_violin(trim = FALSE) + 
+  geom_jitter(width = 0.1, size = 0.1) +
+  facet_wrap(~gene_name) +
+  scale_colour_discrete(name  ="label of interest")
+```
+
+```{r}
+data <- read_tsv(file.path(data_dir_path, 'interpret_k6.tsv'), show_col_types = FALSE) %>%
+    gather(group, importance, -feature)
+labels <- read_tsv(file.path(data_dir_path, 'sumo', 'k6', 'clusters.tsv'), show_col_types = FALSE)
+selected_label <- 4
+
+top_features <- data %>% 
+    filter(group == paste("GROUP", selected_label, sep="_")) %>% 
+    arrange(desc(importance)) %>% top_n(6, importance)
+top_features
+```
+
+```{r}
+bound_matrices <- plyr::rbind.fill(data_exp, data_met, data_mirna) # matrix concatenation
+rownames(bound_matrices) <- c(rownames(data_exp), rownames(data_met), rownames(data_mirna))
+dim(bound_matrices)
+```
+
+```{r}
+top_features_values <- bound_matrices %>%
+  filter(row.names(bound_matrices) %in% top_features$feature) %>% 
+  t() %>% as.data.frame() %>%
+  tibble::rownames_to_column(var = "sample") %>%
+  left_join(labels, by = "sample") %>%
+  mutate(chosen_label = label == selected_label)
+colnames(top_features_values)
+```
+
+```{r}
+p_values.kruskal <- sapply(c(2:7), function(x){
+  kruskal.test(top_features_values[, x] ~ top_features_values$label)$p.value
+})
+p_values.kruskal
+```
+
+```{r}
+top_features_values %>%
+  gather(gene_name, exp_value, 2:7, factor_key = TRUE) %>%
+  ggplot(aes(factor(label), exp_value, colour = factor(chosen_label))) +
+  geom_violin(trim = FALSE) + 
+  geom_jitter(width = 0.1, size = 0.1) +
+  facet_wrap(~gene_name) +
+  scale_colour_discrete(name  ="label of interest")
+```
+
+
 
 
